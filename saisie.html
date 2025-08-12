@@ -1,0 +1,41 @@
+<script>
+  function makeQR(){
+    // URL de base vers la page d’affichage
+    const base = `${location.origin}${location.pathname.replace(/[^\/]*$/, '')}affichage.html`;
+
+    // Récupère les données actuelles du tableau
+    const rows = [...document.querySelectorAll('#tbody tr')];
+    const payload = {};
+    rows.forEach(tr => { payload[tr.dataset.place] = tr.getValue(); });
+
+    // Encode en base64 (dans le #hash de l'URL)
+    let hash = '';
+    try { hash = btoa(unescape(encodeURIComponent(JSON.stringify(payload)))); } catch(e) { hash = ''; }
+
+    const url = hash ? `${base}#${hash}` : base;
+
+    // (Re)génère le QR
+    const holder = document.getElementById('qrcode');
+    holder.innerHTML = '';
+    const qr = new SimpleQR(holder);
+    qr.makeCode(url);
+    holder.title = url;
+  }
+
+  // Assure que le QR reflète les dernières saisies
+  document.getElementById('btnReset').addEventListener('click', ()=>{
+    if(confirm('Effacer toutes les valeurs ?')){
+      localStorage.removeItem('cdr_planning_v1'); 
+      populate(); 
+      makeQR();
+    }
+  });
+  document.getElementById('btnSave').addEventListener('click', ()=>{
+    autosave();
+    makeQR();
+  });
+
+  // au chargement
+  populate(); 
+  makeQR();
+</script>
