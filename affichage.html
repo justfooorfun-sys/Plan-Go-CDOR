@@ -1,0 +1,17 @@
+<script>
+  function populate(){
+    function decodeData(str){
+      try { return JSON.parse(decodeURIComponent(escape(atob(str)))); }
+      catch(e){ return null; }
+    }
+    const hash = location.hash ? location.hash.slice(1) : '';
+    const saved = hash ? decodeData(hash) 
+                       : (function(){ try{ return JSON.parse(localStorage.getItem('cdr_planning_v1')||'{}'); } catch(e){ return {}; } })();
+
+    const tbody = document.getElementById('tbody');
+    tbody.innerHTML = '';
+    PLACES.forEach(p => tbody.appendChild( buildRow(p, saved?.[p]) ));
+  }
+
+  populate();
+</script>
