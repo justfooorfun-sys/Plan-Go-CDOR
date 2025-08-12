@@ -7,6 +7,153 @@
   <style>
     :root{ --bleu:#2e3e56;--bleu-clair:#5b7898;--orange:#f09b2d;--gris:#f4f6f9;--texte:#0f172a }
     html,body{margin:0;height:100%;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,sans-serif;background:var(--gris);color:var(--texte)}
+    .wrap{max-width:1100px;margin:24px auto;padding:20px}
+    header{position:sticky;top:0;z-index:10;background:linear-gradient(180deg,#fff,rgba(255,255,255,.95));border-bottom:1px solid #e5e7eb}
+    .head-inner{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 18px}
+    .brand{display:flex;align-items:center;gap:12px}
+    .brand img{height:48px;width:auto;border-radius:6px;display:block}
+    .brand img[hidden]{display:none}
+    .brand h1{font-size:32px;margin:0;color:var(--bleu)}
+    .head-right{display:flex;flex-direction:column;align-items:flex-end}
+    .clock{font-variant-numeric:tabular-nums;font-weight:800;color:var(--bleu);font-size:32px;line-height:1}
+    .lastsave{font-size:13px;color:#64748b;margin-top:4px}
+
+    .note{background:#fff;border:1px solid #e5e7eb;border-left:6px solid var(--orange);padding:18px 18px;border-radius:12px;margin:18px 0}
+    .note p{margin:0;font-size:18px;line-height:1.5}
+
+    .card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.04)}
+    table{width:100%;border-collapse:separate;border-spacing:0 8px;padding:12px}
+    thead th{font-size:12px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.08em}
+    tbody tr{background:#fcfdff;border:1px solid #e5e7eb}
+    tbody tr td{padding:10px}
+    tbody tr:first-child td{border-top-left-radius:12px;border-top-right-radius:12px}
+    tbody tr:last-child td{border-bottom-left-radius:12px;border-bottom-right-radius:12px}
+    .place{font-weight:800;color:var(--bleu)}
+    .value{font-weight:800;font-variant-numeric:tabular-nums}
+    .end-chip{display:inline-block;padding:8px 10px;border-radius:10px;background:rgba(240,155,45,.08);color:#a15f00;font-weight:800;font-variant-numeric:tabular-nums}
+
+    @media (max-width:760px){
+      .brand h1{font-size:24px}
+      .clock{font-size:26px}
+      thead{display:none}
+      table, tbody, tr, td{display:block;width:100%}
+      tbody tr{margin:10px 0;border-radius:12px}
+      td{border-bottom:1px dashed #eef2f7}
+      td:last-child{border-bottom:0}
+      .label{display:block;font-size:12px;color:#94a3b8;margin-bottom:6px;text-transform:uppercase}
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="head-inner">
+      <div class="brand">
+        <img id="logo" alt="CDOR" src="logo.jpg" onerror="this.hidden=true" />
+        <h1>CDOR – Heures de débranchement (lecture seule)</h1>
+      </div>
+      <div class="head-right">
+        <div class="clock" id="clock">--:--</div>
+        <div class="lastsave" id="lastsave">Dernière mise à jour : —</div>
+      </div>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <section class="note">
+      <p>
+        Cet applicatif fournit une <strong>information indicative</strong> sur l’heure de débranchement pour <strong>fluidifier les transports</strong>.<br>
+        Des <em>aléas</em> sont possibles. Pensez à relever la <strong>place</strong> et le <strong>secteur</strong>.
+      </p>
+    </section>
+
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            <th>Place</th>
+            <th>Heure de branchement</th>
+            <th>Temps de dialyse</th>
+            <th>Heure de fin</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const PLACES = ["1-1","1-2","1-3","1-4","2-1","2-2","2-3","2-4","3-1","3-2","3-3","3-4","4-1","4-2"];
+    const STORAGE_KEY = 'cdr_planning_v1';
+
+    const formatTime = dt => dt.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+    function tick(){ document.getElementById('clock').textContent = formatTime(new Date()); }
+    setInterval(tick, 1000); tick();
+
+    function minutesFromDurationVal(val){
+      const n = parseInt(val||'0',10) || 0; return n;
+    }
+
+    function buildRow(place, saved){
+      const tr = document.createElement('tr');
+      // place
+      const tdPlace = document.createElement('td');
+      tdPlace.className='place'; tdPlace.textContent=place;
+      // start
+      const tdStart = document.createElement('td');
+      const startLabel = document.createElement('span'); startLabel.className='label'; startLabel.textContent='Heure de branchement';
+      const startVal = document.createElement('div'); startVal.className='value'; startVal.textContent = saved?.start || '—';
+      tdStart.append(startLabel, startVal);
+      // duration
+      const tdDur = document.createElement('td');
+      const durLabel = document.createElement('span'); durLabel.className='label'; durLabel.textContent='Temps de dialyse';
+      const minutes = saved?.dur ? parseInt(saved.dur,10) : 0;
+      const label = minutes ? `${Math.floor(minutes/60)}h${(minutes%60||'').toString().padStart(2,'0').replace('00','')}` : '—';
+      const durVal = document.createElement('div'); durVal.className='value'; durVal.textContent = label;
+      tdDur.append(durLabel, durVal);
+      // end
+      const tdEnd = document.createElement('td');
+      const endLabel = document.createElement('span'); endLabel.className='label'; endLabel.textContent='Heure de fin';
+      const endChip = document.createElement('span'); endChip.className='end-chip'; endChip.textContent='—';
+      tdEnd.append(endLabel, endChip);
+
+      tr.append(tdPlace, tdStart, tdDur, tdEnd);
+
+      if(saved){
+        if(saved.endIsManual && saved.endManual){
+          endChip.textContent = saved.endManual + ' (man.)';
+        } else if(saved.start && saved.dur){
+          const [H,M] = saved.start.split(':').map(Number);
+          const d = minutesFromDurationVal(saved.dur);
+          const t = new Date(); t.setHours(H,M,0,0); t.setMinutes(t.getMinutes()+d+15);
+          endChip.textContent = t.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+        }
+      }
+      return tr;
+    }
+
+    (function populate(){
+      let saved = {};
+      try{ saved = JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}'); }catch(e){ saved = {}; }
+      const tbody = document.getElementById('tbody');
+      tbody.innerHTML='';
+      PLACES.forEach(p=> tbody.appendChild( buildRow(p, saved[p]) ) );
+      const last = saved?._lastSaved;
+      const el = document.getElementById('lastsave');
+      if(last){ try{ const d=new Date(last); el.textContent = 'Dernière mise à jour : ' + d.toLocaleString('fr-FR',{hour:'2-digit',minute:'2-digit'}); } catch(e){ /* noop */ } }
+    })();
+  </script>
+</body>
+</html>
+```html
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CDOR – Affichage (lecture seule)</title>
+  <style>
+    :root{ --bleu:#2e3e56;--bleu-clair:#5b7898;--orange:#f09b2d;--gris:#f4f6f9;--texte:#0f172a }
+    html,body{margin:0;height:100%;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,sans-serif;background:var(--gris);color:var(--texte)}
     .wrap{max-width:1050px;margin:24px auto;padding:20px}
     header{position:sticky;top:0;z-index:10;background:linear-gradient(180deg,#fff,rgba(255,255,255,.95));border-bottom:1px solid #e5e7eb}
     .head-inner{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 16px}
