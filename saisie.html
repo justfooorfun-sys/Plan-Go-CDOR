@@ -1,41 +1,218 @@
-<script>
-  function makeQR(){
-    // URL de base vers la page d’affichage
-    const base = `${location.origin}${location.pathname.replace(/[^\/]*$/, '')}affichage.html`;
-
-    // Récupère les données actuelles du tableau
-    const rows = [...document.querySelectorAll('#tbody tr')];
-    const payload = {};
-    rows.forEach(tr => { payload[tr.dataset.place] = tr.getValue(); });
-
-    // Encode en base64 (dans le #hash de l'URL)
-    let hash = '';
-    try { hash = btoa(unescape(encodeURIComponent(JSON.stringify(payload)))); } catch(e) { hash = ''; }
-
-    const url = hash ? `${base}#${hash}` : base;
-
-    // (Re)génère le QR
-    const holder = document.getElementById('qrcode');
-    holder.innerHTML = '';
-    const qr = new SimpleQR(holder);
-    qr.makeCode(url);
-    holder.title = url;
-  }
-
-  // Assure que le QR reflète les dernières saisies
-  document.getElementById('btnReset').addEventListener('click', ()=>{
-    if(confirm('Effacer toutes les valeurs ?')){
-      localStorage.removeItem('cdr_planning_v1'); 
-      populate(); 
-      makeQR();
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CDOR – Saisie (planning dialyse)</title>
+  <style>
+    :root{
+      --bleu:#2e3e56;           /* sobre santé */
+      --bleu-clair:#5b7898;     /* secondaire */
+      --orange:#f09b2d;         /* accent transport/temps */
+      --gris:#f4f6f9;           /* fond calme */
+      --texte:#0f172a;
     }
-  });
-  document.getElementById('btnSave').addEventListener('click', ()=>{
-    autosave();
-    makeQR();
-  });
+    html,body{margin:0;height:100%;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,sans-serif;background:var(--gris);color:var(--texte)}
+    .wrap{max-width:1050px;margin:24px auto;padding:20px}
+    header{position:sticky;top:0;z-index:10;background:linear-gradient(180deg,#fff,rgba(255,255,255,.95));border-bottom:1px solid #e5e7eb}
+    .head-inner{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 16px}
+    .brand{display:flex;align-items:center;gap:12px}
+    .brand img{height:42px;width:auto;border-radius:6px;display:block}
+    .brand img[hidden]{display:none}
+    .brand h1{font-size:18px;margin:0;color:var(--bleu);letter-spacing:.2px}
+    .clock{font-variant-numeric:tabular-nums;font-weight:600;color:var(--bleu)}
 
-  // au chargement
-  populate(); 
-  makeQR();
-</script>
+    .note{background:#fff;border:1px solid #e5e7eb;border-left:4px solid var(--orange);padding:14px 16px;border-radius:10px;margin:18px 0}
+    .note strong{color:var(--bleu)}
+
+    .card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.04)}
+    .toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px dashed #e5e7eb}
+    .toolbar .qr{display:flex;align-items:center;gap:10px}
+    .toolbar button{appearance:none;border:0;background:var(--bleu);color:#fff;padding:10px 14px;border-radius:10px;font-weight:600;cursor:pointer}
+    .toolbar button.secondary{background:#eef2f7;color:var(--bleu)}
+
+    table{width:100%;border-collapse:separate;border-spacing:0 8px;padding:12px}
+    thead th{font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.08em}
+    tbody tr{background:#fcfdff;border:1px solid #e5e7eb}
+    tbody tr td{padding:10px}
+    tbody tr:first-child td{border-top-left-radius:12px;border-top-right-radius:12px}
+    tbody tr:last-child td{border-bottom-left-radius:12px;border-bottom-right-radius:12px}
+
+    .place{font-weight:700;color:var(--bleu)}
+    input[type="time"], select{width:100%;padding:8px 10px;border:1px solid #d0d7e2;border-radius:10px;background:#fff;font-size:14px}
+    .end-chip{display:inline-block;padding:8px 10px;border-radius:10px;background:rgba(240,155,45,.08);color:#a15f00;font-weight:700;font-variant-numeric:tabular-nums}
+
+    .footer{padding:16px;color:#64748b;font-size:13px}
+    .muted{color:#94a3b8}
+
+    @media (max-width:760px){
+      thead{display:none}
+      table, tbody, tr, td{display:block;width:100%}
+      tbody tr{margin:10px 0;border-radius:12px}
+      td{border-bottom:1px dashed #eef2f7}
+      td:last-child{border-bottom:0}
+      .label{display:block;font-size:12px;color:#94a3b8;margin-bottom:6px;text-transform:uppercase}
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="head-inner">
+      <div class="brand">
+        <img id="logo" alt="CDOR" src="logo.jpg" onerror="this.hidden=true" />
+        <h1>CDOR – Saisie du planning (dialyse)</h1>
+      </div>
+      <div class="clock" id="clock">--:--</div>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <section class="note">
+      <p><strong>But :</strong> renseigner l’heure de branchement et la durée de dialyse par place. L’<em>heure de fin</em> est calculée automatiquement en ajoutant la durée de dialyse <strong>+ 15 min</strong> (marge de sortie du patient).</p>
+    </section>
+
+    <div class="card">
+      <div class="toolbar">
+        <div class="qr">
+          <span class="muted">Scanner pour la version lecture seule (instantané des données) :</span>
+          <div id="qrcode"></div>
+        </div>
+        <div>
+          <button id="btnReset" class="secondary" title="Effacer toutes les valeurs">Réinitialiser</button>
+          <button id="btnSave" title="Sauvegarder maintenant">Sauvegarder</button>
+        </div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Place</th>
+            <th>Heure de branchement</th>
+            <th>Temps de dialyse</th>
+            <th>Heure de fin (auto)</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+
+      <div class="footer">
+        <span class="muted">Les données sont stockées localement dans ce navigateur (localStorage).</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Librairie QRCode fiable via CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" integrity="sha512-MmI2V9NfX6b3s1Vb8DcY3xw9i8xD6v1iXj52mT2S9r2V6XGvTQ2h8jKf0Q6c9I3nq0v5Y5Jm9QpF0h+uXv6Ymw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+  <script>
+    const PLACES = ["1-1","1-2","1-3","1-4","2-1","2-2","2-3","2-4","3-1","3-2","3-3","3-4","4-1","4-2"];
+    const STORAGE_KEY = 'cdr_planning_v1';
+
+    const formatTime = dt => dt.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+    function tick(){ document.getElementById('clock').textContent = formatTime(new Date()); }
+    setInterval(tick, 1000); tick();
+
+    function minutesFromDurationVal(val){
+      switch(val){
+        case '120': return 120; // 2h
+        case '180': return 180; // 3h
+        case '210': return 210; // 3h30
+        case '240': return 240; // 4h
+        default: return parseInt(val||'0',10) || 0;
+      }
+    }
+
+    function buildRow(place, saved){
+      const tr = document.createElement('tr');
+      // place
+      const tdPlace = document.createElement('td');
+      tdPlace.className = 'place';
+      tdPlace.textContent = place;
+      // start time
+      const tdStart = document.createElement('td');
+      const startLabel = document.createElement('span'); startLabel.className='label'; startLabel.textContent='Heure de branchement';
+      const start = document.createElement('input'); start.type='time'; start.step='60'; start.value = saved?.start || '';
+      tdStart.append(startLabel,start);
+      // duration
+      const tdDur = document.createElement('td');
+      const durLabel = document.createElement('span'); durLabel.className='label'; durLabel.textContent='Temps de dialyse';
+      const sel = document.createElement('select');
+      sel.innerHTML = `<option value="">—</option>
+        <option value="120">2h</option>
+        <option value="180">3h</option>
+        <option value="210">3h30</option>
+        <option value="240">4h</option>`;
+      if(saved?.dur){ sel.value = saved.dur; }
+      tdDur.append(durLabel, sel);
+      // end
+      const tdEnd = document.createElement('td');
+      const endLabel = document.createElement('span'); endLabel.className='label'; endLabel.textContent='Heure de fin (auto)';
+      const endChip = document.createElement('span'); endChip.className='end-chip'; endChip.textContent='—';
+      tdEnd.append(endLabel, endChip);
+
+      tr.append(tdPlace, tdStart, tdDur, tdEnd);
+
+      function recalc(){
+        const s = start.value; const d = minutesFromDurationVal(sel.value);
+        if(!s || !d){ endChip.textContent='—'; return; }
+        const [H,M] = s.split(':').map(Number);
+        const t = new Date(); t.setHours(H,M,0,0);
+        t.setMinutes(t.getMinutes() + d + 15); // +15 min marge
+        endChip.textContent = formatTime(t);
+      }
+      start.addEventListener('change', ()=>{recalc(); autosave(); makeQR();});
+      sel.addEventListener('change', ()=>{recalc(); autosave(); makeQR();});
+      recalc();
+
+      tr.dataset.place = place;
+      tr.getValue = ()=>({ place, start: start.value, dur: sel.value });
+      return tr;
+    }
+
+    function load(){
+      try{ return JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}'); }catch(e){ return {}; }
+    }
+    function save(data){ localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
+    function autosave(){
+      const rows = [...document.querySelectorAll('#tbody tr')];
+      const payload = {};
+      rows.forEach(tr=>{ payload[tr.dataset.place] = tr.getValue(); });
+      save(payload);
+    }
+
+    function populate(){
+      const saved = load();
+      const tbody = document.getElementById('tbody');
+      tbody.innerHTML='';
+      PLACES.forEach(p=>{ tbody.appendChild( buildRow(p, saved[p]) ); });
+    }
+
+    // QR code vers la page d'affichage avec un instantané des données (#hash)
+    function currentPayload(){
+      const rows = [...document.querySelectorAll('#tbody tr')];
+      const payload = {};
+      rows.forEach(tr=>{ payload[tr.dataset.place] = tr.getValue(); });
+      return payload;
+    }
+    function encodeData(obj){
+      try{ return btoa(unescape(encodeURIComponent(JSON.stringify(obj)))); }catch(e){ return ''; }
+    }
+    function makeQR(){
+      const base = `${location.origin}${location.pathname.replace(/[^\/]*$/, '')}affichage.html`;
+      const data = encodeData(currentPayload());
+      const url = data ? `${base}#${data}` : base;
+      const holder = document.getElementById('qrcode');
+      holder.innerHTML = '';
+      new QRCode(holder, { text: url, width: 128, height: 128 });
+      holder.title = url;
+    }
+
+    document.getElementById('btnReset').addEventListener('click', ()=>{
+      if(confirm('Effacer toutes les valeurs ?')){ localStorage.removeItem(STORAGE_KEY); populate(); makeQR(); }
+    });
+    document.getElementById('btnSave').addEventListener('click', ()=>{ autosave(); makeQR(); });
+
+    populate(); makeQR();
+  </script>
+</body>
+</html>
